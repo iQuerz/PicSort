@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "WSL": {
+      "commandName": "WSL2",
+      "distributionName": ""
+    },
+    "Komp": {
+      "commandName": "Project",
+      "commandLineArgs": "\"C:\\Users\\nikit\\Downloads\\ajfon\" \"D:\\Slike\\Dzoni iPhone 11\""
+    }
+  }
+}

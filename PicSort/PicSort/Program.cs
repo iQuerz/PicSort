@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using MetadataExtractor;
+using System.Linq;
+using System.Globalization;
 
 namespace PicSort
 {
@@ -8,17 +11,26 @@ namespace PicSort
     {
         static void Main(string[] args)
         {
-            sort("D:\\slike\\Dzoni's iPhone 11\\temp2", "D:\\slike\\Dzoni's iPhone 11");
+            if(args.Length < 2)
+            {
+                Console.WriteLine("Invalid use. Please provide absolute paths to src and dst folders like such: srcPath dstPath");
+                return;
+            }
+            var srcPath = args[0];
+            var dstPath = args[1];
+            SortPictures(srcPath, dstPath);
+            return;
         }
-        static void sort(string srcPath, string dstPath)
+        
+        static void SortPictures(string srcPath, string dstPath)
         {
             try
             {
-                DirectoryInfo srcDir = new DirectoryInfo(srcPath);
-                DirectoryInfo dstDir = new DirectoryInfo(dstPath);
+                DirectoryInfo srcDir = new(srcPath);
+                DirectoryInfo dstDir = new(dstPath);
 
-                List<FileInfo> srcFiles = new List<FileInfo>();
-                fillList(srcDir, ref srcFiles);
+                List<FileInfo> srcFiles = [];
+                GetAllFilesRecursively(srcDir, ref srcFiles);
 
                 int numberOfFiles = srcFiles.Count;
                 int numberOfTransfers = 0;
@@ -28,14 +40,58 @@ namespace PicSort
                     int percentage = (numberOfTransfers * 100) / numberOfFiles;
                     Console.Write($"\r    Copying files... {numberOfTransfers}/{numberOfFiles} ({percentage}%)                                          ");
 
-                    var date = file.LastWriteTime;
-                    int year = date.Year;
-                    string month = parseMonth(date.Month);
+                    if (Path.GetExtension(file.FullName).ToLower().EndsWith("aae")) continue;
 
-                    string dstFolderPath = $"{dstDir.FullName}\\{year}\\{month}";
-                    Directory.CreateDirectory(dstFolderPath);
+                    IEnumerable<MetadataExtractor.Directory> metadataDirs = ImageMetadataReader.ReadMetadata(file.FullName);
+                    var tags = metadataDirs
+                        .SelectMany(x => x.Tags
+                            .Select(y => new
+                                {
+                                    dir = x.Name,
+                                    tag = y.Name,
+                                    value = y.Description
+                            })
+                        );
 
-                    string dstFilePath = dstFolderPath + $"\\{file.Name}";
+                    var dateTakenTags = tags.Where(x =>
+                        x.dir == "QuickTime Track Header" && x.tag == "Created"
+                        || x.dir == "Exif IFD0" && x.tag == "Date/Time"
+                        || x.dir == "Exif SubIFD" && x.tag == "Date/Time Original")
+                        .ToList();
+
+                    DateTime? dateTaken = DateTime.MinValue;
+                    if (dateTakenTags.Count == 0)
+                    {
+                        dateTaken = null;
+                    }
+                    else
+                    {
+                        var dateTakenString = dateTakenTags.First().value.ToString();
+
+                        string videoFormat = "ddd MMM dd HH:mm:ss yyyy";
+                        string imageFormat = "yyyy:MM:dd HH:mm:ss";
+                        if (DateTime.TryParseExact(dateTakenString, videoFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime videDateTaken))
+                        {
+                            dateTaken = videDateTaken;
+                        }
+                        else if (DateTime.TryParseExact(dateTakenString, imageFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime imageDateTaken))
+                        {
+                            dateTaken = imageDateTaken;
+                        }
+
+                    }
+
+                    var dstFolderPath = Path.Combine(dstDir.FullName, "unsorted");
+                    if(dateTaken != null )
+                    {
+                        var year = dateTaken.Value.Year.ToString();
+                        string month = GetDestinationFolderNameFromMonth(dateTaken.Value.Month);
+                        dstFolderPath =  Path.Combine(dstDir.FullName, year, month);
+                    }
+
+                    System.IO.Directory.CreateDirectory(dstFolderPath);
+
+                    string dstFilePath = Path.Combine(dstFolderPath, file.Name);
 
                     file.CopyTo(dstFilePath, true);
                     numberOfTransfers++;
@@ -44,49 +100,39 @@ namespace PicSort
             }
             catch (Exception e)
             {
+                Console.WriteLine();
+                Console.WriteLine();
                 Console.WriteLine($"We've encountered an error - {e.Message}.\n Exiting...\n");
             }
         }
-        static void fillList(DirectoryInfo dir, ref List<FileInfo> files)
+
+        static void GetAllFilesRecursively(DirectoryInfo dir, ref List<FileInfo> files)
         {
             foreach (var file in dir.GetFiles())
                 files.Add(file);
 
             foreach(var subdir in dir.GetDirectories())
-                fillList(subdir, ref files);
+                GetAllFilesRecursively(subdir, ref files);
         }
 
-        static string parseMonth(int month)
+        static string GetDestinationFolderNameFromMonth(int month)
         {
-            switch (month)
+            return month switch
             {
-                case 1:
-                    return "1Januar";
-                case 2:
-                    return "2Februar";
-                case 3:
-                    return "3Mart";
-                case 4:
-                    return "4April";
-                case 5:
-                    return "5Maj";
-                case 6:
-                    return "6Jun";
-                case 7:
-                    return "7Jul";
-                case 8:
-                    return "8Avgust";
-                case 9:
-                    return "9Septembar";
-                case 10:
-                    return "10Oktobar";
-                case 11:
-                    return "11Novembar";
-                case 12:
-                    return "12Decembar";
-                default:
-                    return "Other";
-            }
+                1 => "1Januar",
+                2 => "2Februar",
+                3 => "3Mart",
+                4 => "4April",
+                5 => "5Maj",
+                6 => "6Jun",
+                7 => "7Jul",
+                8 => "8Avgust",
+                9 => "9Septembar",
+                10 => "10Oktobar",
+                11 => "11Novembar",
+                12 => "12Decembar",
+                _ => "Other",
+            };
         }
     }
 }
